@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SurePet Curfew",
+        "description": "Configure SurePet curfew settings. Credentials are stored locally but not used yet in the stub integration.",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "curfew_start_time": "Curfew start time (HH:MM)",
+          "curfew_end_time": "Curfew end time (HH:MM)",
+          "curfew_override_minutes": "Curfew override duration (minutes)"
+        }
+      }
+    },
+    "error": {
+      "invalid_time": "Time must be in HH:MM format"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SurePet Curfew options",
+        "data": {
+          "curfew_start_time": "Curfew start time (HH:MM)",
+          "curfew_end_time": "Curfew end time (HH:MM)",
+          "curfew_override_minutes": "Curfew override duration (minutes)"
+        }
+      }
+    }
+  }
+}

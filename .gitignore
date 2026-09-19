@@ -1,0 +1,28 @@
+# Home Assistant runtime data
+ha-config/.storage/
+ha-config/.cloud/
+ha-config/secrets.yaml
+ha-config/home-assistant_v2.db*
+ha-config/home-assistant.log*
+ha-config/.HA_VERSION
+ha-config/deps/
+ha-config/tts/
+ha-config/www/
+
+# Secrets and env
+.env
+.env.*
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

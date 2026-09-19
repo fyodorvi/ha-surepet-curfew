@@ -1,0 +1,11 @@
+{
+  "domain": "surepet_curfew",
+  "name": "SurePet Curfew",
+  "codeowners": ["@fyodorvi"],
+  "config_flow": true,
+  "documentation": "https://github.com/fyodorvi/ha-surepet-curfew",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/fyodorvi/ha-surepet-curfew/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

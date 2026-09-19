@@ -1,0 +1,7 @@
+# Loads default set of included integrations for Home Assistant Core.
+default_config:
+
+logger:
+  default: info
+  logs:
+    custom_components.surepet_curfew: debug
