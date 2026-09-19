@@ -26,23 +26,21 @@ from .const import (
 TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
-def _validate_time(value: str) -> str:
-    """Validate HH:MM time format."""
-    if not TIME_PATTERN.match(value):
-        raise vol.Invalid("Time must be in HH:MM format")
-    return value
+def _time_errors(user_input: dict[str, Any]) -> dict[str, str]:
+    """Return field errors for invalid HH:MM values."""
+    errors: dict[str, str] = {}
+    for key in (CONF_CURFEW_START, CONF_CURFEW_END):
+        if not TIME_PATTERN.match(user_input[key]):
+            errors[key] = "invalid_time"
+    return errors
 
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_USERNAME): str,
         vol.Required(CONF_PASSWORD): str,
-        vol.Required(CONF_CURFEW_START, default=DEFAULT_CURFEW_START): vol.All(
-            str, _validate_time
-        ),
-        vol.Required(CONF_CURFEW_END, default=DEFAULT_CURFEW_END): vol.All(
-            str, _validate_time
-        ),
+        vol.Required(CONF_CURFEW_START, default=DEFAULT_CURFEW_START): str,
+        vol.Required(CONF_CURFEW_END, default=DEFAULT_CURFEW_END): str,
         vol.Required(CONF_CURFEW_OVERRIDE, default=DEFAULT_CURFEW_OVERRIDE): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=240)
         ),
@@ -62,6 +60,14 @@ class SurepetCurfewConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            errors.update(_time_errors(user_input))
+            if errors:
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=STEP_USER_DATA_SCHEMA,
+                    errors=errors,
+                )
+
             await self.async_set_unique_id(user_input[CONF_USERNAME].lower())
             self._abort_if_unique_id_configured()
 
@@ -96,30 +102,41 @@ class SurepetCurfewOptionsFlow(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Manage the options."""
         if user_input is not None:
+            errors = _time_errors(user_input)
+            if errors:
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=self._options_schema(),
+                    errors=errors,
+                )
             return self.async_create_entry(title="", data=user_input)
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_CURFEW_START,
-                        default=self.config_entry.data.get(
-                            CONF_CURFEW_START, DEFAULT_CURFEW_START
-                        ),
-                    ): vol.All(str, _validate_time),
-                    vol.Required(
-                        CONF_CURFEW_END,
-                        default=self.config_entry.data.get(
-                            CONF_CURFEW_END, DEFAULT_CURFEW_END
-                        ),
-                    ): vol.All(str, _validate_time),
-                    vol.Required(
-                        CONF_CURFEW_OVERRIDE,
-                        default=self.config_entry.data.get(
-                            CONF_CURFEW_OVERRIDE, DEFAULT_CURFEW_OVERRIDE
-                        ),
-                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=240)),
-                }
-            ),
+            data_schema=self._options_schema(),
+        )
+
+    def _options_schema(self) -> vol.Schema:
+        """Build the options flow schema."""
+        return vol.Schema(
+            {
+                vol.Required(
+                    CONF_CURFEW_START,
+                    default=self.config_entry.data.get(
+                        CONF_CURFEW_START, DEFAULT_CURFEW_START
+                    ),
+                ): str,
+                vol.Required(
+                    CONF_CURFEW_END,
+                    default=self.config_entry.data.get(
+                        CONF_CURFEW_END, DEFAULT_CURFEW_END
+                    ),
+                ): str,
+                vol.Required(
+                    CONF_CURFEW_OVERRIDE,
+                    default=self.config_entry.data.get(
+                        CONF_CURFEW_OVERRIDE, DEFAULT_CURFEW_OVERRIDE
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=240)),
+            }
         )
