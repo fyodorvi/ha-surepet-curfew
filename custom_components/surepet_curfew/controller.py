@@ -13,11 +13,11 @@ from surepy.enums import LockState
 
 try:
     from .api import PetDoorInfo, SurePetApi
-    from .schedule import in_curfew_window, local_now, seconds_until
+    from .schedule import in_curfew_window, local_now, normalize_hhmm, seconds_until
     from .state import FlapSnapshot, LOCK_MODE_CURFEW
 except ImportError:
     from api import PetDoorInfo, SurePetApi
-    from schedule import in_curfew_window, local_now, seconds_until
+    from schedule import in_curfew_window, local_now, normalize_hhmm, seconds_until
     from state import FlapSnapshot, LOCK_MODE_CURFEW
 
 _LOGGER = logging.getLogger(__name__)
@@ -265,7 +265,30 @@ class FlapController:
         snap = door.snapshot
         if snap is None or not snap.online:
             return False
-        return snap.effective_locked == self._desired_effective_locked(door)
+
+        desired_locked = self._desired_effective_locked(door)
+        if snap.effective_locked != desired_locked:
+            return False
+
+        now = self._now(door.info.timezone)
+
+        if not door.settings.curfew_enabled:
+            return not snap.curfew.enabled
+
+        if door.override_until and now < door.override_until:
+            return not snap.curfew.enabled
+
+        if door.lock_until_curfew:
+            return not snap.curfew.enabled
+
+        return (
+            snap.curfew.enabled
+            and snap.mode == LOCK_MODE_CURFEW
+            and normalize_hhmm(snap.curfew.lock_time)
+            == normalize_hhmm(door.settings.curfew_start)
+            and normalize_hhmm(snap.curfew.unlock_time)
+            == normalize_hhmm(door.settings.curfew_end)
+        )
 
     def _sync_failed(self, door: DoorRuntime) -> bool:
         if door.pending_since is None:
@@ -322,6 +345,13 @@ class FlapController:
         now = self._now(door.info.timezone)
 
         if not door.settings.curfew_enabled:
+            if door.snapshot and door.snapshot.curfew.enabled:
+                await self._api.set_curfew(
+                    device_id,
+                    enabled=False,
+                    lock_time=door.settings.curfew_start,
+                    unlock_time=door.settings.curfew_end,
+                )
             if door.manual_locked:
                 await self._api.lock_in(device_id)
             else:

@@ -17,6 +17,14 @@ def format_hhmm(value: time) -> str:
     return value.strftime("%H:%M")
 
 
+def normalize_hhmm(value: str) -> str:
+    """Normalize HH:MM or HH:MM:SS to HH:MM."""
+    parts = value.split(":")
+    hour = int(parts[0])
+    minute = int(parts[1])
+    return format_hhmm(time(hour=hour, minute=minute))
+
+
 def in_curfew_window(now: datetime, start: str, end: str) -> bool:
     """Return True when now is inside the curfew lock window."""
     current = now.time().replace(second=0, microsecond=0)

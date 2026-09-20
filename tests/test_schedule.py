@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
-from schedule import format_hhmm, in_curfew_window, parse_hhmm, seconds_until
+from schedule import format_hhmm, in_curfew_window, normalize_hhmm, parse_hhmm, seconds_until
 
 
 def test_overnight_curfew_inside_window() -> None:
@@ -33,3 +33,8 @@ def test_format_hhmm_round_trip() -> None:
     value = time(hour=21, minute=30)
     assert format_hhmm(value) == "21:30"
     assert parse_hhmm(format_hhmm(value)) == value
+
+
+def test_normalize_hhmm_strips_seconds() -> None:
+    assert normalize_hhmm("22:00:00") == "22:00"
+    assert normalize_hhmm("06:00") == "06:00"

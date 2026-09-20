@@ -44,18 +44,35 @@ class StaleApi:
 
     def __init__(self) -> None:
         self.mode = LOCK_MODE_UNLOCKED
+        self.curfew_enabled = True
         self.calls: list[str] = []
 
     async def get_snapshot(self, device_id, *, household_id, now=None):
         locked = self.mode == LOCK_MODE_LOCKED_IN
-        return _snapshot(self.mode, locked)
+        curfew = CurfewConfig(
+            enabled=self.curfew_enabled,
+            lock_time="22:00",
+            unlock_time="06:00",
+        )
+        return FlapSnapshot(
+            device_id=1,
+            name="Test Door",
+            product_id=3,
+            online=True,
+            mode=self.mode,
+            curfew=curfew,
+            effective_locked=locked,
+            curfew_locked_known=True,
+        )
 
     async def lock_in(self, device_id):
         self.calls.append("lock_in")
         self.mode = LOCK_MODE_LOCKED_IN
+        self.curfew_enabled = False
 
-    async def set_curfew(self, *args, **kwargs):
+    async def set_curfew(self, *args, enabled=False, **kwargs):
         self.calls.append("set_curfew")
+        self.curfew_enabled = enabled
 
     async def unlock(self, device_id):
         self.calls.append("unlock")

@@ -287,6 +287,25 @@ def test_desired_effective_locked_curfew_window(in_curfew_now: datetime) -> None
 
 
 @pytest.mark.asyncio
+async def test_refresh_enables_native_curfew_when_device_curfew_off(
+    outside_curfew_now: datetime,
+) -> None:
+    """Curfew ON in HA must push native curfew even when lock states already match."""
+    api = FakeApi()
+    api.curfew_enabled = False
+    api.mode = LOCK_MODE_UNLOCKED
+    controller = FlapController(api, now_func=lambda _tz: outside_curfew_now)
+    controller.register_door(_door(), _settings())
+
+    await controller.refresh(1)
+
+    assert ("set_curfew", True) in api.calls
+    assert api.curfew_enabled is True
+    assert api.mode == LOCK_MODE_CURFEW
+    assert controller.doors[1].pending_since is None
+
+
+@pytest.mark.asyncio
 async def test_update_settings_pushes_new_times_to_api(
     outside_curfew_now: datetime,
 ) -> None:
