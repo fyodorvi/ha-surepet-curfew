@@ -87,6 +87,7 @@ flowchart TD
 - **Coordinator poll:** every 60 seconds when idle
 - **Fast retry:** every 15 seconds while desired ≠ observed
 - **Unavailable:** lock entity becomes unavailable after 5 minutes of failed reconcile (`sync_failed: true`)
+- **Native curfew:** when the device is already in curfew mode with the right times, the integration does not re-send the schedule just because the API lock flag lags
 
 ### Curfew switch ON (default)
 

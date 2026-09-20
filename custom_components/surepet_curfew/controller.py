@@ -196,21 +196,23 @@ class FlapController:
         try:
             if door.settings.curfew_enabled:
                 if door.override_until and now < door.override_until:
-                    await self._api.set_curfew(
-                        door.info.device_id,
+                    await self._set_curfew(
+                        door,
+                        reason="schedule_push_override",
                         enabled=False,
                         lock_time=door.settings.curfew_start,
                         unlock_time=door.settings.curfew_end,
                     )
                 elif door.lock_until_curfew:
-                    await self._api.set_curfew(
-                        door.info.device_id,
+                    await self._set_curfew(
+                        door,
+                        reason="schedule_push_lock_until_curfew",
                         enabled=False,
                         lock_time=door.settings.curfew_start,
                         unlock_time=door.settings.curfew_end,
                     )
                 else:
-                    await self._apply_native_curfew(door)
+                    await self._apply_native_curfew(door, reason="schedule_push")
 
             snapshot = await self._api.get_snapshot(
                 door.info.device_id,
@@ -261,10 +263,36 @@ class FlapController:
             now, door.settings.curfew_start, door.settings.curfew_end
         )
 
+    def _is_native_curfew_mode(self, door: DoorRuntime) -> bool:
+        """Return True when the door should run native curfew scheduling."""
+        if not door.settings.curfew_enabled:
+            return False
+        now = self._now(door.info.timezone)
+        if door.override_until and now < door.override_until:
+            return False
+        if door.lock_until_curfew:
+            return False
+        return True
+
+    def _native_curfew_configured(self, door: DoorRuntime, snap: FlapSnapshot) -> bool:
+        """Return True when the device already has the expected native curfew."""
+        return (
+            snap.curfew.enabled
+            and snap.mode == LOCK_MODE_CURFEW
+            and normalize_hhmm(snap.curfew.lock_time)
+            == normalize_hhmm(door.settings.curfew_start)
+            and normalize_hhmm(snap.curfew.unlock_time)
+            == normalize_hhmm(door.settings.curfew_end)
+        )
+
     def _is_synced(self, door: DoorRuntime) -> bool:
         snap = door.snapshot
         if snap is None or not snap.online:
             return False
+
+        if self._is_native_curfew_mode(door):
+            # Native curfew owns lock/unlock; do not re-PUT on stale lock flags.
+            return self._native_curfew_configured(door, snap)
 
         desired_locked = self._desired_effective_locked(door)
         if snap.effective_locked != desired_locked:
@@ -281,14 +309,7 @@ class FlapController:
         if door.lock_until_curfew:
             return not snap.curfew.enabled
 
-        return (
-            snap.curfew.enabled
-            and snap.mode == LOCK_MODE_CURFEW
-            and normalize_hhmm(snap.curfew.lock_time)
-            == normalize_hhmm(door.settings.curfew_start)
-            and normalize_hhmm(snap.curfew.unlock_time)
-            == normalize_hhmm(door.settings.curfew_end)
-        )
+        return False
 
     def _sync_failed(self, door: DoorRuntime) -> bool:
         if door.pending_since is None:
@@ -339,34 +360,76 @@ class FlapController:
 
         return door.snapshot
 
+    def _log_api_write(self, door: DoorRuntime, action: str, reason: str) -> None:
+        snap = door.snapshot
+        _LOGGER.info(
+            "%s: %s reason=%s mode=%s effective_locked=%s curfew_enabled=%s",
+            door.info.name,
+            action,
+            reason,
+            snap.mode if snap else None,
+            snap.effective_locked if snap else None,
+            snap.curfew.enabled if snap else None,
+        )
+
+    async def _set_curfew(
+        self,
+        door: DoorRuntime,
+        *,
+        reason: str,
+        enabled: bool,
+        lock_time: str,
+        unlock_time: str,
+    ) -> None:
+        self._log_api_write(
+            door,
+            f"set_curfew(enabled={enabled}, lock={lock_time}, unlock={unlock_time})",
+            reason,
+        )
+        await self._api.set_curfew(
+            door.info.device_id,
+            enabled=enabled,
+            lock_time=lock_time,
+            unlock_time=unlock_time,
+        )
+
+    async def _unlock(self, door: DoorRuntime, *, reason: str) -> None:
+        self._log_api_write(door, "unlock", reason)
+        await self._api.unlock(door.info.device_id)
+
+    async def _lock_in(self, door: DoorRuntime, *, reason: str) -> None:
+        self._log_api_write(door, "lock_in", reason)
+        await self._api.lock_in(door.info.device_id)
+
     async def _apply_desired_state(self, door: DoorRuntime) -> None:
         """Push API commands needed to reach desired state."""
-        device_id = door.info.device_id
         now = self._now(door.info.timezone)
 
         if not door.settings.curfew_enabled:
             if door.snapshot and door.snapshot.curfew.enabled:
-                await self._api.set_curfew(
-                    device_id,
+                await self._set_curfew(
+                    door,
+                    reason="manual_mode_disable_curfew",
                     enabled=False,
                     lock_time=door.settings.curfew_start,
                     unlock_time=door.settings.curfew_end,
                 )
             if door.manual_locked:
-                await self._api.lock_in(device_id)
+                await self._lock_in(door, reason="manual_mode_lock")
             else:
-                await self._api.unlock(device_id)
+                await self._unlock(door, reason="manual_mode_unlock")
             return
 
         if door.override_until:
             if now < door.override_until:
-                await self._api.set_curfew(
-                    device_id,
+                await self._set_curfew(
+                    door,
+                    reason="override_disable_curfew",
                     enabled=False,
                     lock_time=door.settings.curfew_start,
                     unlock_time=door.settings.curfew_end,
                 )
-                await self._api.unlock(device_id)
+                await self._unlock(door, reason="override_unlock")
                 return
             door.override_until = None
 
@@ -375,18 +438,19 @@ class FlapController:
                 now, door.settings.curfew_start, door.settings.curfew_end
             ):
                 door.lock_until_curfew = False
-                await self._apply_native_curfew(door)
+                await self._apply_native_curfew(door, reason="lock_until_curfew_restore")
             else:
-                await self._api.set_curfew(
-                    device_id,
+                await self._set_curfew(
+                    door,
+                    reason="lock_until_curfew_disable_curfew",
                     enabled=False,
                     lock_time=door.settings.curfew_start,
                     unlock_time=door.settings.curfew_end,
                 )
-                await self._api.lock_in(device_id)
+                await self._lock_in(door, reason="lock_until_curfew_hold")
             return
 
-        await self._apply_native_curfew(door)
+        await self._apply_native_curfew(door, reason="native_curfew_apply")
 
     async def _handle_external_changes(
         self, door: DoorRuntime, snapshot: FlapSnapshot
@@ -404,9 +468,10 @@ class FlapController:
                 door.override_until = None
                 door.lock_until_curfew = False
 
-    async def _apply_native_curfew(self, door: DoorRuntime) -> None:
-        await self._api.set_curfew(
-            door.info.device_id,
+    async def _apply_native_curfew(self, door: DoorRuntime, *, reason: str) -> None:
+        await self._set_curfew(
+            door,
+            reason=reason,
             enabled=True,
             lock_time=door.settings.curfew_start,
             unlock_time=door.settings.curfew_end,

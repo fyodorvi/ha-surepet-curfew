@@ -28,10 +28,16 @@ TZ = "Pacific/Auckland"
 
 
 class FakeApi:
-    def __init__(self, *, stale_reads: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        stale_reads: int = 0,
+        effective_locked_override: bool | None = None,
+    ) -> None:
         self.mode = LOCK_MODE_CURFEW
         self.curfew_enabled = True
         self.online = True
+        self.effective_locked_override = effective_locked_override
         self.calls: list[tuple[str, Any]] = []
         self.last_curfew_times: tuple[str, str] | None = None
         self._stale_reads = stale_reads
@@ -57,9 +63,13 @@ class FakeApi:
         )
         from state import effective_locked
 
-        locked, known = effective_locked(
-            mode, curfew, now=current, curfew_locked=None
-        )
+        if self.effective_locked_override is not None:
+            locked = self.effective_locked_override
+            known = True
+        else:
+            locked, known = effective_locked(
+                mode, curfew, now=current, curfew_locked=None
+            )
         return FlapSnapshot(
             device_id=device_id,
             name="Test Door",
@@ -303,6 +313,21 @@ def test_desired_effective_locked_curfew_window(in_curfew_now: datetime) -> None
     controller.register_door(_door(), _settings())
 
     assert controller.desired_effective_locked(1) is True
+
+
+@pytest.mark.asyncio
+async def test_refresh_does_not_reapply_native_curfew_for_stale_lock_flag(
+    in_curfew_now: datetime,
+) -> None:
+    """Mode 4 with matching times must not re-PUT when lock flag lags."""
+    api = FakeApi(effective_locked_override=False)
+    controller = FlapController(api, now_func=lambda _tz: in_curfew_now)
+    controller.register_door(_door(), _settings())
+
+    await controller.refresh(1)
+
+    assert api.calls == []
+    assert controller.doors[1].pending_since is None
 
 
 @pytest.mark.asyncio
