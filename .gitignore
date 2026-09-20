@@ -1,6 +1,8 @@
 # Home Assistant runtime data
 ha-config/.storage/
+ha-config/.cache/
 ha-config/.cloud/
+ha-config/.ha_run.lock
 ha-config/secrets.yaml
 ha-config/home-assistant_v2.db*
 ha-config/home-assistant.log*
@@ -21,8 +23,10 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.pytest_cache/
 
 # OS / editor
 .DS_Store
 .idea/
 .vscode/
+.credentials

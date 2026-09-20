@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 import voluptuous as vol
 
-from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
+import aiohttp
 
+from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlow, OptionsFlowWithReload
+from homeassistant.core import callback
+from homeassistant.data_entry_flow import FlowResult
+from surepy.exceptions import SurePetcareAuthenticationError, SurePetcareError
+
+from .api import SurePetApi
 from .const import (
     CONF_CURFEW_END,
     CONF_CURFEW_OVERRIDE,
@@ -21,37 +25,76 @@ from .const import (
     DEFAULT_CURFEW_OVERRIDE,
     DEFAULT_CURFEW_START,
     DOMAIN,
+    get_entry_option,
 )
-
-TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-
-
-def _time_errors(user_input: dict[str, Any]) -> dict[str, str]:
-    """Return field errors for invalid HH:MM values."""
-    errors: dict[str, str] = {}
-    for key in (CONF_CURFEW_START, CONF_CURFEW_END):
-        if not TIME_PATTERN.match(user_input[key]):
-            errors[key] = "invalid_time"
-    return errors
-
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_USERNAME): str,
         vol.Required(CONF_PASSWORD): str,
-        vol.Required(CONF_CURFEW_START, default=DEFAULT_CURFEW_START): str,
-        vol.Required(CONF_CURFEW_END, default=DEFAULT_CURFEW_END): str,
-        vol.Required(CONF_CURFEW_OVERRIDE, default=DEFAULT_CURFEW_OVERRIDE): vol.All(
+    }
+)
+
+OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_CURFEW_OVERRIDE): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=240)
         ),
     }
 )
 
+DEFAULT_OPTIONS = {
+    CONF_CURFEW_START: DEFAULT_CURFEW_START,
+    CONF_CURFEW_END: DEFAULT_CURFEW_END,
+    CONF_CURFEW_OVERRIDE: DEFAULT_CURFEW_OVERRIDE,
+}
 
-class SurepetCurfewConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+
+async def _validate_credentials(username: str, password: str) -> str | None:
+    """Return an error key if credentials or devices are invalid."""
+    async with aiohttp.ClientSession() as session:
+        api = SurePetApi(username, password, session=session)
+        try:
+            await api.connect()
+            doors = await api.list_pet_doors()
+            if not doors:
+                return "no_pet_doors"
+        except SurePetcareAuthenticationError:
+            return "invalid_auth"
+        except (SurePetcareError, aiohttp.ClientError):
+            return "cannot_connect"
+        finally:
+            await api.close()
+    return None
+
+
+def _current_options(config_entry: config_entries.ConfigEntry) -> dict[str, Any]:
+    """Return the effective curfew options for a config entry."""
+    return {
+        CONF_CURFEW_START: get_entry_option(
+            config_entry, CONF_CURFEW_START, DEFAULT_CURFEW_START
+        ),
+        CONF_CURFEW_END: get_entry_option(
+            config_entry, CONF_CURFEW_END, DEFAULT_CURFEW_END
+        ),
+        CONF_CURFEW_OVERRIDE: get_entry_option(
+            config_entry, CONF_CURFEW_OVERRIDE, DEFAULT_CURFEW_OVERRIDE
+        ),
+    }
+
+
+class SurepetCurfewConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for SurePet Curfew."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> SurepetCurfewOptionsFlow:
+        """Get the options flow for this handler."""
+        return SurepetCurfewOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -60,8 +103,11 @@ class SurepetCurfewConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            errors.update(_time_errors(user_input))
-            if errors:
+            credential_error = await _validate_credentials(
+                user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
+            )
+            if credential_error:
+                errors["base"] = credential_error
                 return self.async_show_form(
                     step_id="user",
                     data_schema=STEP_USER_DATA_SCHEMA,
@@ -73,7 +119,11 @@ class SurepetCurfewConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             return self.async_create_entry(
                 title=user_input[CONF_USERNAME],
-                data=user_input,
+                data={
+                    CONF_USERNAME: user_input[CONF_USERNAME],
+                    CONF_PASSWORD: user_input[CONF_PASSWORD],
+                },
+                options=DEFAULT_OPTIONS,
             )
 
         return self.async_show_form(
@@ -82,61 +132,77 @@ class SurepetCurfewConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Allow updating Sure Petcare credentials after setup."""
+        entry = self._get_reconfigure_entry()
 
-async def async_get_options_flow(
-    hass: HomeAssistant, config_entry: config_entries.ConfigEntry
-) -> config_entries.OptionsFlow:
-    """Get the options flow for this handler."""
-    return SurepetCurfewOptionsFlow(config_entry)
+        if user_input is not None:
+            credential_error = await _validate_credentials(
+                user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
+            )
+            if credential_error:
+                return self.async_show_form(
+                    step_id="reconfigure",
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required(
+                                CONF_USERNAME, default=entry.data[CONF_USERNAME]
+                            ): str,
+                            vol.Required(CONF_PASSWORD): str,
+                        }
+                    ),
+                    errors={"base": credential_error},
+                )
+
+            await self.async_set_unique_id(user_input[CONF_USERNAME].lower())
+            self._abort_if_unique_id_mismatch()
+
+            return self.async_update_reload_and_abort(
+                entry,
+                data_updates={
+                    CONF_USERNAME: user_input[CONF_USERNAME],
+                    CONF_PASSWORD: user_input[CONF_PASSWORD],
+                },
+            )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_USERNAME, default=entry.data[CONF_USERNAME]
+                    ): str,
+                    vol.Required(CONF_PASSWORD): str,
+                }
+            ),
+        )
 
 
-class SurepetCurfewOptionsFlow(config_entries.OptionsFlow):
+class SurepetCurfewOptionsFlow(OptionsFlowWithReload):
     """Handle options flow for SurePet Curfew."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Manage the options."""
+        """Manage curfew options."""
         if user_input is not None:
-            errors = _time_errors(user_input)
-            if errors:
-                return self.async_show_form(
-                    step_id="init",
-                    data_schema=self._options_schema(),
-                    errors=errors,
-                )
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_create_entry(
+                data={
+                    **_current_options(self.config_entry),
+                    CONF_CURFEW_OVERRIDE: user_input[CONF_CURFEW_OVERRIDE],
+                }
+            )
 
         return self.async_show_form(
             step_id="init",
-            data_schema=self._options_schema(),
-        )
-
-    def _options_schema(self) -> vol.Schema:
-        """Build the options flow schema."""
-        return vol.Schema(
-            {
-                vol.Required(
-                    CONF_CURFEW_START,
-                    default=self.config_entry.data.get(
-                        CONF_CURFEW_START, DEFAULT_CURFEW_START
-                    ),
-                ): str,
-                vol.Required(
-                    CONF_CURFEW_END,
-                    default=self.config_entry.data.get(
-                        CONF_CURFEW_END, DEFAULT_CURFEW_END
-                    ),
-                ): str,
-                vol.Required(
-                    CONF_CURFEW_OVERRIDE,
-                    default=self.config_entry.data.get(
-                        CONF_CURFEW_OVERRIDE, DEFAULT_CURFEW_OVERRIDE
-                    ),
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=240)),
-            }
+            data_schema=self.add_suggested_values_to_schema(
+                OPTIONS_SCHEMA,
+                {
+                    CONF_CURFEW_OVERRIDE: _current_options(self.config_entry)[
+                        CONF_CURFEW_OVERRIDE
+                    ],
+                },
+            ),
         )

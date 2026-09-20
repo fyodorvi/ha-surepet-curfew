@@ -3,27 +3,36 @@
     "step": {
       "user": {
         "title": "SurePet Curfew",
-        "description": "Configure SurePet curfew settings. Credentials are stored locally but not used yet in the stub integration.",
+        "description": "Connect your Sure Petcare account. Only Pet Door Connect (LCD) devices are supported. Set curfew start and end times on the device after setup.",
         "data": {
           "username": "Username",
-          "password": "Password",
-          "curfew_start_time": "Curfew start time (HH:MM)",
-          "curfew_end_time": "Curfew end time (HH:MM)",
-          "curfew_override_minutes": "Curfew override duration (minutes)"
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure SurePet Curfew",
+        "description": "Update your Sure Petcare account credentials.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
         }
       }
     },
     "error": {
-      "invalid_time": "Time must be in HH:MM format"
+      "invalid_auth": "Invalid Sure Petcare username or password",
+      "cannot_connect": "Could not connect to Sure Petcare",
+      "no_pet_doors": "No Pet Door Connect devices found in this account"
+    },
+    "abort": {
+      "reconfigure_successful": "Credentials updated successfully."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "SurePet Curfew options",
+        "description": "Update curfew override duration. Start and end times are set on the device time entities.",
         "data": {
-          "curfew_start_time": "Curfew start time (HH:MM)",
-          "curfew_end_time": "Curfew end time (HH:MM)",
           "curfew_override_minutes": "Curfew override duration (minutes)"
         }
       }

@@ -1,0 +1,23 @@
+{
+  "id": 1381206,
+  "name": "Backyard Door",
+  "product_id": 3,
+  "household_id": 269302,
+  "control": {
+    "curfew": {
+      "enabled": false,
+      "lock_time": "22:00",
+      "unlock_time": "06:00"
+    },
+    "locking": 0,
+    "fast_polling": false
+  },
+  "status": {
+    "battery": 5.9,
+    "learn_mode": false,
+    "locking": {
+      "mode": 0
+    },
+    "online": true
+  }
+}
