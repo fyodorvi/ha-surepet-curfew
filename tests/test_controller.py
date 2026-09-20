@@ -163,7 +163,26 @@ async def test_lock_outside_curfew_exits_curfew(outside_curfew_now: datetime) ->
 
     assert controller.desired_effective_locked(1) is True
     assert controller.doors[1].lock_until_curfew is True
+    assert ("set_curfew", False) in api.calls
     assert ("lock_in", None) in api.calls
+
+
+@pytest.mark.asyncio
+async def test_refresh_disables_curfew_when_lock_until_curfew(
+    outside_curfew_now: datetime,
+) -> None:
+    """Held lock outside curfew must disable native curfew before locking in."""
+    api = FakeApi()
+    controller = FlapController(api, now_func=lambda _tz: outside_curfew_now)
+    controller.register_door(_door(), _settings())
+    controller.doors[1].lock_until_curfew = True
+
+    await controller.refresh(1)
+
+    assert ("set_curfew", False) in api.calls
+    assert ("lock_in", None) in api.calls
+    assert api.curfew_enabled is False
+    assert controller.doors[1].pending_since is None
 
 
 @pytest.mark.asyncio

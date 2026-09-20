@@ -43,6 +43,18 @@ class SurepetCurfewSwitch(SurepetCurfewEntity, SwitchEntity):
         runtime = self.coordinator.controller.doors[self._device_id]
         return runtime.settings.curfew_enabled
 
+    @property
+    def extra_state_attributes(self) -> dict[str, str | bool | None]:
+        runtime = self.coordinator.controller.doors[self._device_id]
+        snap = self.snapshot
+        return {
+            "observed_curfew_enabled": snap.curfew.enabled if snap else None,
+            "sync_failed": self.coordinator.controller.sync_failed(self._device_id),
+            "pending_since": (
+                runtime.pending_since.isoformat() if runtime.pending_since else None
+            ),
+        }
+
     async def async_turn_on(self, **kwargs) -> None:
         await self.coordinator.async_set_curfew_enabled(self._device_id, True)
         self.async_write_ha_state()

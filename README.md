@@ -61,7 +61,7 @@ Open **Settings → Devices & Services → Integrations → SurePet Curfew**, se
 | Entity | Type | Description |
 |--------|------|-------------|
 | Lock | `lock` | Effective door lock state (optimistic). Attributes: `observed_locked`, `sync_failed`, `pending_since` |
-| Curfew | `switch` | Curfew schedule on/off. Persisted per device across restarts |
+| Curfew | `switch` | Curfew schedule on/off (desired). Persisted per device across restarts. Attributes: `observed_curfew_enabled`, `sync_failed`, `pending_since` |
 | Lock time | `time` | When the door locks each day (curfew start) |
 | Unlock time | `time` | When the door unlocks each day (curfew end) |
 

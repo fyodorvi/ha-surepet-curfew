@@ -377,6 +377,12 @@ class FlapController:
                 door.lock_until_curfew = False
                 await self._apply_native_curfew(door)
             else:
+                await self._api.set_curfew(
+                    device_id,
+                    enabled=False,
+                    lock_time=door.settings.curfew_start,
+                    unlock_time=door.settings.curfew_end,
+                )
                 await self._api.lock_in(device_id)
             return
 
